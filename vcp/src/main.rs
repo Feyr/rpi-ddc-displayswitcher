@@ -17,7 +17,8 @@ use std::str;
 use std::str::FromStr;
 use std::collections::VecDeque;
 use std::cmp::{min, max};
-
+use std::sync::mpsc::{Sender, Receiver};
+use std::sync::mpsc;
 
 extern crate daemonize;
 use std::fs::File;
@@ -75,7 +76,7 @@ const BL: u8 = 24;
 
 
 pub struct Brightness {
-    pub brightness: u8,
+    pub brightness: i16,
 }
 
 impl Brightness {
@@ -85,7 +86,7 @@ impl Brightness {
         }
     }
 
-    pub fn get_brightness(&mut self) -> Result<u8, Box<dyn Error>> {
+    pub fn get_brightness(&mut self) -> Result<i16, Box<dyn Error>> {
             let mut cmd = Command::new("ddcutil");
             let cmd = cmd.args(["getvcp", "10"]);
         
@@ -101,28 +102,54 @@ impl Brightness {
             let s = s.pop_front().unwrap().trim();
             let s = s.split(',').collect::<VecDeque<_>>().pop_front().unwrap();
             println!("found: {}", s);
-            let val = u8::from_str(s).unwrap();
+            let val = i16::from_str(s).unwrap();
                       
             self.brightness = val;
             Ok(val)    
     }
 
-    pub fn compute_brightness(&self, sign: char, val: u8) -> u8 {
+    pub fn compute_brightness(&self, sign: char, val: i16) -> i16 {
         match sign {
-            '-' => max(self.brightness + val, 0),
+            '-' => max(self.brightness - val, 0),
             '+' => min(self.brightness + val, 100),
             _ => min(max(val, 0), 100),
         }
     }
 
-    pub fn set_brightness(&mut self, sign: char, val: u8) {
+    pub fn set_brightness(&mut self, sign: char, val: i16) {
         let new_val = self.compute_brightness(sign, val);
         let mut cmd = Command::new("ddcutil");
-        let cmd = cmd.args(["setvcp", "10", &val.to_string()]);
+        let cmd = cmd.args(["setvcp", "10", &new_val.to_string()]);
     
-        let _output = cmd.output()
+        
+        let output = cmd.output()
                                 .expect("failed to execute process");
-    
+        println!("Setting brightness {}:  {:?}: {}: {}", self.brightness, cmd.get_args(), output.status, String::from_utf8(output.stdout).unwrap() );
+        self.brightness = new_val;
+
+    }
+
+
+}
+
+#[cfg(test)]
+mod brightness_tests {
+    use crate::Brightness;
+    #[test]
+    fn test() {
+        let mut brightness= Brightness::new();
+        brightness.brightness = 50;
+        assert_eq!(brightness.brightness, 50);
+        assert_eq!(brightness.compute_brightness('+', 50), 100);
+        brightness.brightness = 100;
+        assert_eq!(brightness.compute_brightness('+', 50), 100);
+        brightness.brightness = 100;
+        assert_eq!(brightness.compute_brightness('-', 50), 50);
+        brightness.brightness = 50;
+        assert_eq!(brightness.compute_brightness('-', 50), 0);
+        brightness.brightness = 0;
+        assert_eq!(brightness.compute_brightness('-', 50), 0);
+        
 
     }
 
@@ -133,8 +160,10 @@ fn setdp(dp: &str)  {
     let mut cmd = Command::new("ddcutil");
     let cmd = cmd.args(["setvcp", "60", &dp]);
 
-    let _output = cmd.output()
+    let output = cmd.output()
                             .expect("failed to execute process");
+
+    println!("Setting DP {}:  {:?}: {}: {}", dp, cmd.get_args(), output.status, String::from_utf8(output.stdout).unwrap() );
 
     
 }
@@ -168,7 +197,19 @@ fn daemonize() {
     }
 
 }
+#[derive(Debug)]
+enum Action {
+    SetDP1,
+    SetDP2,
+    BrightnessUp,
+    BrightnessDown,
+    LcdOn,
+    LcdOff,
+    LcdFlash,
+    NeverUsed, // avoid a silly rust warning
+}
 
+const DEBOUNCE_DURATION: Duration = Duration::from_millis(100);
 
 fn main() -> Result<(), Box<dyn Error>> {
 
@@ -177,38 +218,65 @@ fn main() -> Result<(), Box<dyn Error>> {
         daemonize();
     }
 
+    let (tx, rx): (Sender<Action>, Receiver<Action>) = mpsc::channel();
+
     let mut hwconfig = Hw::new();
     
+    let mut bl_p = hwconfig.gpio.get(BL)?.into_output();
     let mut key1 = hwconfig.gpio.get(KEY1)?.into_input_pullup();
     let mut key3 = hwconfig.gpio.get(KEY3)?.into_input_pullup();
-    // let mut joyleft = hwconfig.gpio.get(JOY_LEFT)?.into_input_pullup();
-    // let mut joyright = hwconfig.gpio.get(JOY_RIGHT)?.into_input_pullup();
+    let mut joyleft = hwconfig.gpio.get(JOY_LEFT)?.into_input_pullup();
+    let mut joyright = hwconfig.gpio.get(JOY_RIGHT)?.into_input_pullup();
 
-    // there might be a bounce that sometimes randomly switch inputs?
-    // wait here before setting the interrupts
-    thread::sleep(Duration::from_millis(100)); 
+    // changing the pull up triggers an edge, which can get caught by the interrupt handlers bellow
+    // wait here a bit to let it settle
+    thread::sleep(Duration::from_millis(50)); 
 
-    let _ = key1.set_async_interrupt(FallingEdge, |_| { setdp(DP1); println!("{}", getdp().unwrap()); })
+
+    let thread_tx = tx.clone();
+    let _ = key1.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP1); let _ = thread_tx.send(Action::LcdFlash); thread::sleep(DEBOUNCE_DURATION);})
                 .expect("Could not configure Key1");
-    let _ = key3.set_async_interrupt(FallingEdge, |_| { setdp(DP2); println!("{}", getdp().unwrap()); })
+    
+    let thread_tx = tx.clone();
+    let _ = key3.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP2); let _ = thread_tx.send(Action::LcdFlash); thread::sleep(DEBOUNCE_DURATION);})
                 .expect("Could not configure Key3");
-    // let _ = joyleft.set_async_interrupt(RisingEdge, |_| { hwconfig.brightness.set_brightness('-', 50) })
-    //             .expect("Could not configure JOY LEFT");
 
-    // let _ = joyright.set_async_interrupt(RisingEdge, |_| { hwconfig.brightness.set_brightness('+', 50) })
-    //             .expect("Could not configure JOY RIGHT");
+    let thread_tx = tx.clone();
+    let _ = joyleft.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::BrightnessDown);thread::sleep(DEBOUNCE_DURATION);})
+                .expect("Could not configure JOY LEFT");
 
+    let thread_tx = tx.clone();
+    let _ = joyright.set_async_interrupt(FallingEdge, move |_| {let _ = thread_tx.send(Action::BrightnessUp); thread::sleep(DEBOUNCE_DURATION);})
+                .expect("Could not configure JOY RIGHT");
 
      // turn off the LCD
-    let mut bl_p = hwconfig.gpio.get(BL)?.into_output();
-    bl_p.set_low();
+
+    //bl_p.set_low();
+    let _ = tx.send(Action::LcdOff);
 
     println!("{:?}",hwconfig.brightness.get_brightness());
     //   
     println!("{}", getdp().unwrap());
     println!("Listening for key commands");
 
+    loop {
+            println!("Polling!");
+            let msg = rx.recv().unwrap();
+            println!("Message: {:?}", msg);
+            match msg {
+                Action::SetDP1 => {setdp(DP1); println!("1: {}", getdp().unwrap());}
+                Action::SetDP2 => {setdp(DP2); println!("2: {}", getdp().unwrap());}
+                Action::BrightnessUp => {hwconfig.brightness.set_brightness('+', 25);}
+                Action::BrightnessDown => {hwconfig.brightness.set_brightness('-', 25);}
+                Action::LcdFlash => {let _ = tx.send(Action::LcdOn); let _ = tx.send(Action::LcdOff);}
+                Action::LcdOn => {bl_p.set_high();thread::sleep(Duration::from_millis(1000))}
+                Action::LcdOff => {bl_p.set_low();}
+                _ =>  {println!("Unhandled message"); continue}
+            }
+
+    }
     // never exit
-    loop {thread::sleep(Duration::from_millis(30000));};
+    //loop {thread::sleep(Duration::from_millis(30000));    };
 }
+
 
