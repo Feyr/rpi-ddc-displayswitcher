@@ -1,0 +1,6 @@
+[target.arm-unknown-linux-gnueabihf]
+#linker = "C:/Users/feyr/gcc-arm-10.3-2021.07-mingw-w64-i686-arm-none-linux-gnueabihf/bin/arm-none-linux-gnueabihf-gcc"
+linker = "C:/Program Files (x86)/Arm GNU Toolchain arm-none-linux-gnueabihf/12.3 rel1/bin/arm-none-linux-gnueabihf-gcc"
+
+[build]
+#target ="arm-unknown-linux-muslabihf"

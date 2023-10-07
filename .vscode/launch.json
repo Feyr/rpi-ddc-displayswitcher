@@ -1,0 +1,12 @@
+{
+    "configurations": [
+    {
+        "type": "lldb",
+        "request": "launch",
+        "name": "Launch",
+        "program": "${workspaceFolder}/vcp/target/debug/vcp.exe",
+        "args": [],
+        "cwd": "${workspaceFolder}"
+    }
+    ]
+}
