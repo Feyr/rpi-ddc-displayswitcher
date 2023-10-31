@@ -232,6 +232,13 @@ fn process_wait_event(tx: &Sender<Action>, event_time: SystemTime, next_action: 
     let _ = tx.send(*next_action);
 }
 
+fn change_dp(tx: &Sender<Action>, dp: &str) {
+    let _ = tx.send(Action::LcdFlash);
+    setdp(dp);
+    println!("{}: {}", dp, getdp().unwrap());
+}
+
+
 fn main() -> Result<(), Box<dyn Error>> {
 
     let args = Args::parse();
@@ -255,19 +262,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 
     let thread_tx = tx.clone();
-    let _ = key1.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP1); let _ = thread_tx.send(Action::LcdFlash); thread::sleep(DEBOUNCE_DURATION);})
+    let _ = key1.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP1); })
                 .expect("Could not configure Key1");
     
     let thread_tx = tx.clone();
-    let _ = key3.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP2); let _ = thread_tx.send(Action::LcdFlash); thread::sleep(DEBOUNCE_DURATION);})
+    let _ = key3.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::SetDP2); })
                 .expect("Could not configure Key3");
 
     let thread_tx = tx.clone();
-    let _ = joyleft.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::BrightnessDown);thread::sleep(DEBOUNCE_DURATION);})
+    let _ = joyleft.set_async_interrupt(FallingEdge, move |_| { let _ = thread_tx.send(Action::BrightnessDown);})
                 .expect("Could not configure JOY LEFT");
 
     let thread_tx = tx.clone();
-    let _ = joyright.set_async_interrupt(FallingEdge, move |_| {let _ = thread_tx.send(Action::BrightnessUp); thread::sleep(DEBOUNCE_DURATION);})
+    let _ = joyright.set_async_interrupt(FallingEdge, move |_| {let _ = thread_tx.send(Action::BrightnessUp);})
                 .expect("Could not configure JOY RIGHT");
 
     let _ = tx.send(Action::LcdOff);
@@ -280,8 +287,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let msg = rx.recv().unwrap();
             println!("Message: {:?}", msg);
             match msg {
-                Action::SetDP1 => {setdp(DP1); println!("1: {}", getdp().unwrap());}
-                Action::SetDP2 => {setdp(DP2); println!("2: {}", getdp().unwrap());}
+                Action::SetDP1 => {change_dp(&tx, DP1);}
+                Action::SetDP2 => {change_dp(&tx, DP2);}
                 Action::BrightnessUp => {hwconfig.brightness.set_brightness('+', 25);}
                 Action::BrightnessDown => {hwconfig.brightness.set_brightness('-', 25);}
                 Action::LcdFlash => {let _ = tx.send(Action::LcdOn); let _ = tx.send(Action::LcdOff.future(1000));}
