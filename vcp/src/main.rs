@@ -9,7 +9,7 @@ use rppal::i2c::I2c;
 use rppal::spi::{Bus, Mode, SlaveSelect, Spi};
 //use rppal::uart::{Parity, Uart};
 use std::thread;
-use std::time::Duration;
+use std::time::{SystemTime, Duration};
 use std::error::Error;
 use std::process::Command;
 use std::str;
@@ -206,10 +206,29 @@ enum Action {
     LcdOn,
     LcdOff,
     LcdFlash,
+    WaitUntil{event_time: SystemTime, next_action: Box<Action>},
     NeverUsed, // avoid a silly rust warning
 }
 
+
+impl Action {
+    pub fn future(self, millis: u64) -> Action {
+        let now = SystemTime::now();
+        println!("now: {:?}", now);
+        Action::WaitUntil{event_time: now + Duration::from_millis(millis), next_action: Box::new(self)}
+    }
+}
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(100);
+
+fn process_wait_event(tx: &Sender<Action>, event_time: SystemTime, next_action: Box<Action>) {
+    println!("{:?} : {:?}",event_time, SystemTime::now());
+    if event_time > SystemTime::now() {
+        println!("Delaying more");
+        let _ = tx.send(Action::WaitUntil{event_time, next_action});
+        return;
+    }
+    let _ = tx.send(*next_action);
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
 
@@ -268,15 +287,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 Action::SetDP2 => {setdp(DP2); println!("2: {}", getdp().unwrap());}
                 Action::BrightnessUp => {hwconfig.brightness.set_brightness('+', 25);}
                 Action::BrightnessDown => {hwconfig.brightness.set_brightness('-', 25);}
-                Action::LcdFlash => {let _ = tx.send(Action::LcdOn); let _ = tx.send(Action::LcdOff);}
-                Action::LcdOn => {bl_p.set_high();thread::sleep(Duration::from_millis(1000))}
+                Action::LcdFlash => {let _ = tx.send(Action::LcdOn); let _ = tx.send(Action::LcdOff.future(1000));}
+                Action::LcdOn => {bl_p.set_high();}
                 Action::LcdOff => {bl_p.set_low();}
+                Action::WaitUntil{ event_time, next_action} => { process_wait_event(&tx, event_time, next_action); }
                 _ =>  {println!("Unhandled message"); continue}
             }
-
     }
     // never exit
-    //loop {thread::sleep(Duration::from_millis(30000));    };
 }
 
 
