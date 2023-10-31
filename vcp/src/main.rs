@@ -110,16 +110,19 @@ impl Brightness {
             Ok(val)    
     }
 
-    pub fn compute_brightness(&self, sign: char, val: i16) -> i16 {
-        match sign {
-            '-' => max(self.brightness - val, 0),
-            '+' => min(self.brightness + val, 100),
-            _ => min(max(val, 0), 100),
-        }
+    pub fn increase(&mut self, val: i16) {
+        let new_brightness = min(self.brightness + val, 100);
+        self.set(new_brightness);
     }
 
-    pub fn set_brightness(&mut self, sign: char, val: i16) {
-        let new_val = self.compute_brightness(sign, val);
+    pub fn decrease(&mut self, val: i16) {
+        let new_brightness = max(self.brightness - val, 0);
+        self.set(new_brightness);
+    }
+
+    pub fn set(&mut self, val: i16) {
+        let new_val = min(max(val, 0), 100);
+
         let mut cmd = Command::new("ddcutil");
         let cmd = cmd.args(["setvcp", "10", &new_val.to_string()]);
     
@@ -130,6 +133,7 @@ impl Brightness {
         self.brightness = new_val;
 
     }
+
 
 
 }
@@ -289,8 +293,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             match msg {
                 Action::SetDP1 => {change_dp(&tx, DP1);}
                 Action::SetDP2 => {change_dp(&tx, DP2);}
-                Action::BrightnessUp => {hwconfig.brightness.set_brightness('+', 25);}
-                Action::BrightnessDown => {hwconfig.brightness.set_brightness('-', 25);}
+                Action::BrightnessUp => {hwconfig.brightness.increase(25);}
+                Action::BrightnessDown => {hwconfig.brightness.decrease(25);}
                 Action::LcdFlash => {let _ = tx.send(Action::LcdOn); let _ = tx.send(Action::LcdOff.future(1000));}
                 Action::LcdOn => {bl_p.set_high();}
                 Action::LcdOff => {bl_p.set_low();}
