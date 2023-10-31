@@ -81,9 +81,11 @@ pub struct Brightness {
 
 impl Brightness {
     pub fn new() -> Brightness {
-        Brightness {
+        let mut b = Brightness {
             brightness: 50
-        }
+        };
+        let _ = b.get_brightness();
+        b
     }
 
     pub fn get_brightness(&mut self) -> Result<i16, Box<dyn Error>> {
@@ -268,18 +270,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let _ = joyright.set_async_interrupt(FallingEdge, move |_| {let _ = thread_tx.send(Action::BrightnessUp); thread::sleep(DEBOUNCE_DURATION);})
                 .expect("Could not configure JOY RIGHT");
 
-     // turn off the LCD
-
-    //bl_p.set_low();
     let _ = tx.send(Action::LcdOff);
 
-    println!("{:?}",hwconfig.brightness.get_brightness());
-    //   
-    println!("{}", getdp().unwrap());
+    println!("Brightness: {:?}",hwconfig.brightness.brightness);
+    println!("Current DP: {}", getdp().unwrap());
     println!("Listening for key commands");
 
     loop {
-            println!("Polling!");
             let msg = rx.recv().unwrap();
             println!("Message: {:?}", msg);
             match msg {
