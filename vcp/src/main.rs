@@ -25,6 +25,8 @@ use std::fs::File;
 use daemonize::Daemonize;
 use clap::Parser;
 
+use crate::brightness::Brightness;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -75,92 +77,6 @@ const KEY3: u8= 16;
 const BL: u8 = 24;
 
 
-pub struct Brightness {
-    pub brightness: i16,
-}
-
-impl Brightness {
-    pub fn new() -> Brightness {
-        let mut b = Brightness {
-            brightness: 50
-        };
-        let _ = b.get_brightness();
-        b
-    }
-
-    pub fn get_brightness(&mut self) -> Result<i16, Box<dyn Error>> {
-            let mut cmd = Command::new("ddcutil");
-            let cmd = cmd.args(["getvcp", "10"]);
-        
-            let output = cmd.output()
-                                    .expect("failed to execute process");
-            let s = match str::from_utf8(&output.stdout) {
-                Ok(v) => v,
-                Err(e) => panic!("Invalid utf-8: {}", e)
-            };
-
-            let mut s = s.split('=').collect::<VecDeque<_>>();
-            _= s.pop_front();
-            let s = s.pop_front().unwrap().trim();
-            let s = s.split(',').collect::<VecDeque<_>>().pop_front().unwrap();
-            println!("found: {}", s);
-            let val = i16::from_str(s).unwrap();
-                      
-            self.brightness = val;
-            Ok(val)    
-    }
-
-    pub fn increase(&mut self, val: i16) {
-        let new_brightness = min(self.brightness + val, 100);
-        self.set(new_brightness);
-    }
-
-    pub fn decrease(&mut self, val: i16) {
-        let new_brightness = max(self.brightness - val, 0);
-        self.set(new_brightness);
-    }
-
-    pub fn set(&mut self, val: i16) {
-        let new_val = min(max(val, 0), 100);
-
-        let mut cmd = Command::new("ddcutil");
-        let cmd = cmd.args(["setvcp", "10", &new_val.to_string()]);
-    
-        
-        let output = cmd.output()
-                                .expect("failed to execute process");
-        println!("Setting brightness {}:  {:?}: {}: {}", self.brightness, cmd.get_args(), output.status, String::from_utf8(output.stdout).unwrap() );
-        self.brightness = new_val;
-
-    }
-
-
-
-}
-
-#[cfg(test)]
-mod brightness_tests {
-    use crate::Brightness;
-    #[test]
-    fn test() {
-        let mut brightness= Brightness::new();
-        brightness.brightness = 50;
-        assert_eq!(brightness.brightness, 50);
-        assert_eq!(brightness.compute_brightness('+', 50), 100);
-        brightness.brightness = 100;
-        assert_eq!(brightness.compute_brightness('+', 50), 100);
-        brightness.brightness = 100;
-        assert_eq!(brightness.compute_brightness('-', 50), 50);
-        brightness.brightness = 50;
-        assert_eq!(brightness.compute_brightness('-', 50), 0);
-        brightness.brightness = 0;
-        assert_eq!(brightness.compute_brightness('-', 50), 0);
-        
-
-    }
-
-
-}
 
 fn setdp(dp: &str)  {
     let mut cmd = Command::new("ddcutil");
